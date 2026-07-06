@@ -667,7 +667,10 @@ tr{animation:fadeIn .3s ease}
         <button type="button" class="btn btn-sm btn-b" onclick="generateRealityKeysUI()" style="width:100%;margin-bottom:10px">تولید کلید Reality (x25519)</button>
         <div class="f-g"><label>Destination</label><input type="text" id="ib-dest" value="is1-ssl.mzstatic.com:443" dir="ltr"></div>
         <div class="f-g"><label>Server Names (SNI)</label><input type="text" id="ib-servernames" value="is1-ssl.mzstatic.com" dir="ltr" placeholder="با کاما جدا کنید"></div>
-        <div class="f-g"><label>Short IDs</label><input type="text" id="ib-shortids" value="" dir="ltr" placeholder="هگز ۸ رقمی — خالی = تصادفی"></div>
+        <div class="f-g"><label>Short IDs</label><div style="display:flex;gap:6px"><input type="text" id="ib-shortids" value="" dir="ltr" placeholder="هگز ۸ رقمی — خالی = تصادفی" style="flex:1"><button type="button" class="btn btn-sm" onclick="generateShortId()" style="white-space:nowrap">+ تولید</button></div></div>
+        <div class="f-g"><label>SpiderX</label><input type="text" id="ib-spiderx" dir="ltr" placeholder="/" value="/"></div>
+        <div class="f-g"><label>External Domain</label><input type="text" id="ib-extdomain" dir="ltr" placeholder="دامنه خارجی برای کانفیگ کلاینت"></div>
+        <div class="f-g"><label>External Port</label><input type="number" id="ib-extport" value="443" dir="ltr" placeholder="443"></div>
       </div>
     </div>
 
@@ -1234,6 +1237,23 @@ async function generateRealityKeysUI() {
   } catch(e) { toast('خطا در تولید کلید', 'err'); }
 }
 
+async function generateShortId() {
+  var iid = $id('ib-id').value;
+  if (!iid) {
+    // Creating new inbound — generate locally
+    var hex = ''; for(var i=0;i<10;i++) hex += '0123456789abcdef'[Math.floor(Math.random()*16)];
+    $id('ib-shortids').value = hex;
+    toast('Short ID تولید شد', 'ok');
+    return;
+  }
+  // Editing existing — call API
+  try {
+    var r = await api('/api/inbounds/' + iid + '/generate-short-id', {method: 'POST'});
+    $id('ib-shortids').value = r.short_id || '';
+    toast('Short ID جدید تولید شد', 'ok');
+  } catch(e) { toast('خطا', 'err'); }
+}
+
 function openCreateInbound() {
   $id('ib-title').textContent = 'ایجاد اینباند جدید';
   $id('ib-id').value = '';
@@ -1242,9 +1262,14 @@ function openCreateInbound() {
   $id('ib-ext-port').value = '';
   $id('ib-domain').value = '';
   $id('ib-sni').value = '';
+  $id('ib-extdomain').value = '';
+  $id('ib-extport').value = '';
   $id('ib-privkey').value = '';
   $id('ib-pubkey').value = '';
   $id('ib-shortids').value = '';
+  $id('ib-spiderx').value = '/';
+  $id('ib-extdomain').value = '';
+  $id('ib-extport').value = '443';
   $id('ib-dest').value = 'is1-ssl.mzstatic.com:443';
   $id('ib-servernames').value = 'is1-ssl.mzstatic.com';
   $id('ib-proto').value = 'vless';
@@ -1279,6 +1304,9 @@ function editInbound(iid) {
   $id('ib-privkey').value = (rs || {}).private_key || ib.private_key || '';
   $id('ib-pubkey').value = (rs || {}).public_key || ib.public_key || '';
   $id('ib-shortids').value = (rs || {}).short_ids || '';
+  $id('ib-spiderx').value = (rs || {}).spiderx || '/';
+  $id('ib-extdomain').value = ib.external_domain || '';
+  $id('ib-extport').value = ib.external_port || '443';
   $id('ib-dest').value = (rs || {}).dest || 'is1-ssl.mzstatic.com:443';
   $id('ib-servernames').value = (rs || {}).server_names || (rs || {}).sni || 'is1-ssl.mzstatic.com';
   var ws = ib.ws_settings || {}; var xh = ib.xhttp_settings || {};
@@ -1308,7 +1336,8 @@ async function submitInbound(e) {
     name: $id('ib-name').value,
     protocol: proto,
     port: parseInt($id('ib-port').value) || 0,
-    external_port: parseInt($id('ib-ext-port').value) || null,
+    external_port: parseInt($id('ib-extport').value) || null,
+    external_domain: $id('ib-extdomain').value || '',
     network: network,
     security: security,
     domain: domain,
@@ -1324,6 +1353,7 @@ async function submitInbound(e) {
       dest: $id('ib-dest').value || 'is1-ssl.mzstatic.com:443',
       server_names: ($id('ib-servernames').value || '').split(',').map(function(s){return s.trim()}).filter(Boolean),
       short_ids: $id('ib-shortids').value || '',
+      spiderx: $id('ib-spiderx').value || '/',
       fingerprint: fp
     };
   }

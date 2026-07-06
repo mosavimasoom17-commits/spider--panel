@@ -1448,6 +1448,21 @@ async def generate_inbound_reality_keys(inbound_id: str, _=Depends(require_auth)
     }
 
 
+@app.post("/api/inbounds/{inbound_id}/generate-short-id")
+async def generate_inbound_short_id(inbound_id: str, _=Depends(require_auth)):
+    """Generate only a new short_id for a Reality inbound (no key regeneration)."""
+    async with INBOUNDS_LOCK:
+        ib = INBOUNDS.get(inbound_id)
+        if not ib:
+            raise HTTPException(status_code=404, detail="inbound not found")
+        if ib.get("protocol") != "reality":
+            raise HTTPException(status_code=400, detail="inbound is not Reality protocol")
+        rs = ib.setdefault("reality_settings", {})
+        rs["short_id"] = secrets.token_hex(5)[:10]
+    await save_state()
+    return {"ok": True, "short_id": rs["short_id"]}
+
+
 @app.delete("/api/inbounds/{inbound_id}")
 async def delete_inbound(inbound_id: str, _=Depends(require_auth)):
     """Delete an inbound."""
