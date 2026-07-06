@@ -416,12 +416,17 @@ def generate_user_config(user_id: str, user: dict, inbound_id: str = None) -> st
     if inbound_id:
         inbound = INBOUNDS.get(inbound_id)
     host = SETTINGS.get("domain") or get_host()
-    protocol = user.get("protocol", "vless")
+    # Never use 0.0.0.0 or localhost in public configs
+    if host in ("0.0.0.0", "127.0.0.1", "localhost", ""):
+        host = inbound.get("domain") if inbound else None or CONFIG.get("host", "") or "SERVER_IP"
+    # Protocol from inbound FIRST, then user, then default
+    protocol = (inbound.get("protocol") if inbound else None) or user.get("protocol", "vless")
     config_uuid = user.get("config_uuid", "")
     username = user.get("username", user_id)
     remark = quote(f"Spider-{username}")
     sni = user.get("sni") or (inbound.get("sni") if inbound else None) or host
-    transport_type = user.get("transport_type") or (inbound.get("network") if inbound else None) or "ws"
+    # Transport from inbound FIRST (network field), then user field, then default
+    transport_type = (inbound.get("network") if inbound else None) or user.get("transport_type", "ws")
 
     # ── Path: ALWAYS random, unique per user ──
     # User path field is ignored — system generates random paths
@@ -485,7 +490,9 @@ def generate_user_config(user_id: str, user: dict, inbound_id: str = None) -> st
         else:  # ws default — match RVG format exactly
             ws_host = (inbound.get("domain") if inbound else None) or SETTINGS.get("domain") or host
             ws_sni = sni if sni and sni != host else ws_host
-            ws_path = f"/ws/{config_uuid}"
+            # Use WS path from inbound settings, or default to /ws/{uuid}
+            ws_cfg = inbound.get("ws_settings", {}) if inbound else {}
+            ws_path = ws_cfg.get("path") if ws_cfg and ws_cfg.get("path") else f"/ws/{config_uuid}"
             params = "&".join([
                 f"encryption=none",
                 f"security=tls",
@@ -1161,6 +1168,8 @@ async def create_inbound(request: Request, _=Depends(require_auth)):
     fingerprint = str(body.get("fingerprint") or "chrome").strip()
     reality_settings = body.get("reality_settings", {}) if isinstance(body.get("reality_settings"), dict) else {}
     xhttp_settings = body.get("xhttp_settings", {}) if isinstance(body.get("xhttp_settings"), dict) else {}
+    ws_settings = body.get("ws_settings", {}) if isinstance(body.get("ws_settings"), dict) else {}
+    grpc_settings = body.get("grpc_settings", {}) if isinstance(body.get("grpc_settings"), dict) else {}
 
     inbound_id = generate_short_id()
     async with INBOUNDS_LOCK:
@@ -1178,6 +1187,8 @@ async def create_inbound(request: Request, _=Depends(require_auth)):
             "fingerprint": fingerprint,
             "reality_settings": reality_settings,
             "xhttp_settings": xhttp_settings,
+            "ws_settings": ws_settings,
+            "grpc_settings": grpc_settings,
             "created_at": datetime.now().isoformat(),
         }
     asyncio.create_task(save_state())
@@ -1217,6 +1228,10 @@ async def update_inbound(inbound_id: str, request: Request, _=Depends(require_au
             ib["reality_settings"] = body["reality_settings"]
         if "xhttp_settings" in body and isinstance(body["xhttp_settings"], dict):
             ib["xhttp_settings"] = body["xhttp_settings"]
+        if "ws_settings" in body and isinstance(body["ws_settings"], dict):
+            ib["ws_settings"] = body["ws_settings"]
+        if "grpc_settings" in body and isinstance(body["grpc_settings"], dict):
+            ib["grpc_settings"] = body["grpc_settings"]
     asyncio.create_task(save_state())
     log_activity("inbound", f"اینباند «{ib.get('name', inbound_id)}» ویرایش شد", "info")
     return {"ok": True}
