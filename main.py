@@ -1,7 +1,12 @@
 import asyncio
 import json
 import os
+import sys
 import hashlib
+
+# Ensure the app directory is on the Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import secrets
 import time
 import aiofiles
@@ -1112,19 +1117,31 @@ async def delete_link(uid: str, _=Depends(require_auth)):
     return {"ok": True, "deleted": uid}
 
 # ══════════════════════════════════════════════════════════════════════════════
-# VLESS Relay — جدا شده به relay_vless.py (دست نخورده)
+# VLESS Relay — optional module
 # ══════════════════════════════════════════════════════════════════════════════
 
-from relay_vless import (
-    RELAY_BUF,
-    parse_vless_header,
-    check_and_use,
-    relay_ws_to_tcp,
-    relay_tcp_to_ws,
-    websocket_tunnel,
-)
+try:
+    from relay_vless import (
+        RELAY_BUF,
+        parse_vless_header,
+        check_and_use,
+        relay_ws_to_tcp,
+        relay_tcp_to_ws,
+        websocket_tunnel,
+    )
+    app.add_api_websocket_route("/ws/{uuid}", websocket_tunnel)
+    logger.info("VLESS Relay module loaded")
+except (ImportError, ModuleNotFoundError) as e:
+    logger.warning(f"VLESS Relay module not available: {e}")
 
-app.add_api_websocket_route("/ws/{uuid}", websocket_tunnel)
+# XHTTP — optional transport module
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    from xhttp_siz10 import router as xhttp_router
+    app.include_router(xhttp_router)
+    logger.info("XHTTP module loaded")
+except (ImportError, ModuleNotFoundError) as e:
+    logger.warning(f"XHTTP module not available: {e}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ── HTTP Proxy ────────────────────────────────────────────────────────────────

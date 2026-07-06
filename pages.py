@@ -203,7 +203,7 @@ input:focus ~ .input-icon{color:var(--spider-blue)}
     </form>
     <div class="login-footer">
       <span class="dot"></span>
-      RVG Gateway · Spider Panel
+      Spider Gateway · Spider Panel
       <span class="dot"></span>
     </div>
   </div>
@@ -620,7 +620,7 @@ a{color:inherit;text-decoration:none}
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo">
     <svg width="36" height="36" viewBox="0 0 100 100"><defs><linearGradient id="sg1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#2B7FFF"/><stop offset="50%" style="stop-color:#7B61FF"/><stop offset="100%" style="stop-color:#FF2352"/></linearGradient></defs><path d="M50,50 L10,15 M50,50 L15,50 M50,50 L10,85 M50,50 L90,15 M50,50 L85,50 M50,50 L90,85 M50,50 L30,5 M50,50 L70,5" stroke="url(#sg1)" stroke-width="2.5" fill="none" stroke-linecap="round"/><ellipse cx="50" cy="46" rx="18" ry="22" fill="url(#sg1)"/><ellipse cx="50" cy="23" rx="12" ry="10" fill="url(#sg1)"/><circle cx="44.5" cy="20" r="3" fill="#fff"/><circle cx="55.5" cy="20" r="3" fill="#fff"/><circle cx="45" cy="19.5" r="1.2" fill="#1a1a2e"/><circle cx="56" cy="19.5" r="1.2" fill="#1a1a2e"/></svg>
-    <div><div class="sidebar-logo-text">Spider Panel</div><div class="sidebar-logo-sub">RVG Gateway</div></div>
+    <div><div class="sidebar-logo-text">Spider Panel</div><div class="sidebar-logo-sub">Spider Gateway</div></div>
   </div>
   <div class="sidebar-nav">
     <div class="nav-section">منوی اصلی</div>
@@ -1364,12 +1364,12 @@ html,body{{min-height:100%;background:var(--bg);font-family:'Vazirmatn',sans-ser
   <div class="top-bar">
     <div class="brand">
       <svg width="38" height="38" viewBox="0 0 100 100"><defs><linearGradient id="bgg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#2B7FFF"/><stop offset="50%" style="stop-color:#7B61FF"/><stop offset="100%" style="stop-color:#FF2352"/></linearGradient></defs><ellipse cx="50" cy="48" rx="17" ry="20" fill="url(#bgg)"/><ellipse cx="50" cy="26" rx="11" ry="9" fill="url(#bgg)"/><circle cx="46" cy="23" r="2.5" fill="#fff"/><circle cx="54" cy="23" r="2.5" fill="#fff"/><path d="M50,50 L12,16 M50,50 L16,50 M50,50 L12,84 M50,50 L88,16 M50,50 L84,50 M50,50 L88,84" stroke="url(#bgg)" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
-      <div><div class="brand-name">Spider Panel</div><div class="brand-sub">RVG Gateway</div></div>
+      <div><div class="brand-name">Spider Panel</div><div class="brand-sub">Spider Gateway</div></div>
     </div>
     <button class="theme-toggle" onclick="toggleTheme()" title="تغییر تم"><i class="ti ti-sun" id="theme-icon"></i></button>
   </div>
   <div id="root"><div class="empty"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i><p>در حال بارگذاری...</p></div></div>
-  <div class="footer">Spider Panel · RVG Gateway</div>
+  <div class="footer">Spider Panel · Spider Gateway</div>
 </div>
 <script>
 var UUID_KEY='{uuid_key}',savedPw='',currentData=null;
