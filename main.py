@@ -413,16 +413,20 @@ def generate_user_config(user_id: str, user: dict) -> str:
             extra = quote('{"xPaddingBytes":"100-1000","mode":"auto","scMaxEachPostBytes":"1000000"}', safe='')
             params = f"encryption=none&security=tls&type=xhttp&host={host}&path={path_enc}&sni={sni}&fp=chrome&alpn=h2,http/1.1&mode=auto&extra={extra}"
             return f"vless://{config_uuid}@{host}:443?{params}#{remark}"
-        else:  # ws default
-            # VLESS + WS + TLS: Domain from Domain Management ONLY, port 443, no Reality
+        else:  # ws default — match RVG format exactly
             ws_host = SETTINGS.get("domain") or host
             ws_sni = sni if sni and sni != host else ws_host
-            # Path: /ws/{config_uuid}
-            ws_path = quote(f"/ws/{config_uuid}", safe='')
-            params = (f"path={ws_path}&security=tls&alpn=http%2F1.1"
-                      f"&encryption=none&insecure=0&host={ws_host}"
-                      f"&fp=chrome&type=ws&allowInsecure=0&sni={ws_sni}")
-            # Address: use domain from settings, always port 443
+            ws_path = f"/ws/{config_uuid}"
+            params = "&".join([
+                f"encryption=none",
+                f"security=tls",
+                f"type=ws",
+                f"host={ws_host}",
+                f"path={quote(ws_path)}",
+                f"sni={ws_sni}",
+                f"fp=chrome",
+                f"alpn=http/1.1",
+            ])
             return f"vless://{config_uuid}@{ws_host}:443?{params}#{remark}"
 
     # ── VMess ──
