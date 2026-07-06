@@ -280,7 +280,19 @@ def get_host() -> str:
 def generate_uuid() -> str:
     """Generate a 32-char hex identifier (no dashes) — compatible with Xray/VLESS configs."""
     return secrets.token_hex(16)
-    
+
+
+def generate_random_path(prefix: str = "", length: int = 6) -> str:
+    """Generate a URL-safe random path segment once per user.
+
+    Returns a path like /a83d91c5, /api-f7a29c, /cdn-91ad3b2f.
+    Called ONCE at user creation time then stored permanently.
+    """
+    if prefix:
+        return f"/{prefix}-{secrets.token_hex(length)}"
+    return f"/{secrets.token_hex(length)}"
+
+
 def now_ir() -> datetime:
     return datetime.now(IRAN_TZ)
 
@@ -428,16 +440,26 @@ def generate_user_config(user_id: str, user: dict, inbound_id: str = None) -> st
     # Transport from inbound FIRST (network field), then user field, then default
     transport_type = (inbound.get("network") if inbound else None) or user.get("transport_type", "ws")
 
-    # ── Path: ALWAYS random, unique per user ──
-    # User path field is ignored — system generates random paths
-    raw_path = (user.get("path") or "").strip() if user.get("path") else ""
-    if protocol == "reality":
-        # Reality: always generate fresh random path
-        path_enc = quote(f"/{secrets.token_hex(5)}", safe='')
-    elif raw_path:
-        path_enc = quote(raw_path, safe='')
-    else:
-        path_enc = quote(f"/ws/{config_uuid}", safe='')
+    # ── Path: READ-ONLY, from user storage (generated once at creation) ──
+    # Priority: inbound ws_settings/xhttp_settings > user stored path > generate+store (legacy)
+    stored_path = (user.get("path") or "").strip()
+    # Inbound override takes priority
+    if inbound:
+        ib_ws = inbound.get("ws_settings", {})
+        if ib_ws and ib_ws.get("path"):
+            stored_path = ib_ws["path"]
+        ib_xh = inbound.get("xhttp_settings", {})
+        if ib_xh and ib_xh.get("path"):
+            stored_path = ib_xh["path"]
+        ib_grpc = inbound.get("grpc_settings", {})
+        if ib_grpc and ib_grpc.get("serviceName"):
+            stored_path = ib_grpc["serviceName"]
+    # Legacy users without path: generate once, store, persist
+    if not stored_path:
+        stored_path = generate_random_path()
+        user["path"] = stored_path
+        USERS[user_id] = user
+        asyncio.create_task(save_state())
 
     # ── Reality Protocol ──
     if protocol == "reality":
@@ -457,7 +479,7 @@ def generate_user_config(user_id: str, user: dict, inbound_id: str = None) -> st
         ext_port = inbound.get("external_port") or rs.get("external_port", 443) or 443
         if not reality_pbk or not reality_sid:
             return f"vless://{config_uuid}@{ext_domain}:{ext_port}?encryption=none&security=reality&sni={quote(sni_reality)}&fp={reality_fp}&pbk=MISSING_PBK&sid=MISSING_SID&type=tcp#{remark}"
-        rpath = xs.get("path", "/")
+        rpath = stored_path if stored_path else xs.get("path", "/")
         rt = user.get("transport_type") or (inbound.get("network") if inbound else None) or "xhttp"
         if rt == "xhttp":
             xpb = xs.get("xPaddingBytes", "100-1000")
@@ -468,7 +490,7 @@ def generate_user_config(user_id: str, user: dict, inbound_id: str = None) -> st
             params = (f"encryption=none&security=reality"
                       f"&sni={quote(sni_reality)}&fp={reality_fp}"
                       f"&pbk={reality_pbk}&sid={reality_sid}&spx={quote(reality_spx, safe='')}"
-                      f"&type=xhttp&path={quote(rpath)}&mode={xmod}&extra={extra}")
+                      f"&type=xhttp&path={rpath}&mode={xmod}&extra={extra}")
         else:
             params = (f"encryption=none&security=reality&type=tcp"
                       f"&sni={quote(sni_reality)}&fp={reality_fp}&alpn=h2,http/1.1"
@@ -478,27 +500,24 @@ def generate_user_config(user_id: str, user: dict, inbound_id: str = None) -> st
     # ── VLESS ──
     if protocol == "vless":
         if transport_type == "grpc":
-            params = f"encryption=none&security=tls&type=grpc&serviceName={path_enc}&host={host}&sni={sni}&fp=chrome&alpn=h2"
+            params = f"encryption=none&security=tls&type=grpc&serviceName={stored_path}&host={host}&sni={sni}&fp=chrome&alpn=h2"
             return f"vless://{config_uuid}@{host}:443?{params}#{remark}"
         elif transport_type == "tcp":
             params = f"encryption=none&security=tls&type=tcp&host={host}&sni={sni}&fp=chrome&alpn=h2,http/1.1"
             return f"vless://{config_uuid}@{host}:443?{params}#{remark}"
         elif transport_type == "xhttp":
             extra = quote('{"xPaddingBytes":"100-1000","mode":"auto","scMaxEachPostBytes":"1000000"}', safe='')
-            params = f"encryption=none&security=tls&type=xhttp&host={host}&path={path_enc}&sni={sni}&fp=chrome&alpn=h2,http/1.1&mode=auto&extra={extra}"
+            params = f"encryption=none&security=tls&type=xhttp&host={host}&path={stored_path}&sni={sni}&fp=chrome&alpn=h2,http/1.1&mode=auto&extra={extra}"
             return f"vless://{config_uuid}@{host}:443?{params}#{remark}"
-        else:  # ws default — match RVG format exactly
+        else:  # ws — user's stored path (generated once at creation)
             ws_host = (inbound.get("domain") if inbound else None) or SETTINGS.get("domain") or host
             ws_sni = sni if sni and sni != host else ws_host
-            # Use WS path from inbound settings, or default to /ws/{uuid}
-            ws_cfg = inbound.get("ws_settings", {}) if inbound else {}
-            ws_path = ws_cfg.get("path") if ws_cfg and ws_cfg.get("path") else f"/ws/{config_uuid}"
             params = "&".join([
                 f"encryption=none",
                 f"security=tls",
                 f"type=ws",
                 f"host={ws_host}",
-                f"path={ws_path}",
+                f"path={stored_path}",
                 f"sni={ws_sni}",
                 f"fp=chrome",
                 f"alpn=http/1.1",
@@ -519,26 +538,26 @@ def generate_user_config(user_id: str, user: dict, inbound_id: str = None) -> st
             "net": vmess_net,
             "type": "none",
             "host": sni,
-            "path": path_enc if transport_type != "grpc" else "",
+            "path": stored_path if transport_type != "grpc" else "",
             "tls": "tls",
             "sni": sni,
         }
         if transport_type == "grpc":
             vmess_config["type"] = "gun"
-            vmess_config["path"] = path_enc
+            vmess_config["path"] = stored_path
         encoded = base64.b64encode(json.dumps(vmess_config).encode()).decode()
         return f"vmess://{encoded}"
 
     # ── Trojan ──
     elif protocol == "trojan":
         if transport_type == "grpc":
-            params_t = f"security=tls&type=grpc&serviceName={path_enc}&host={sni}&sni={sni}"
+            params_t = f"security=tls&type=grpc&serviceName={stored_path}&host={sni}&sni={sni}"
         elif transport_type == "xhttp":
-            params_t = f"security=tls&type=xhttp&host={sni}&path={path_enc}&sni={sni}"
+            params_t = f"security=tls&type=xhttp&host={sni}&path={stored_path}&sni={sni}"
         elif transport_type == "tcp":
             params_t = f"security=tls&type=tcp&host={sni}&sni={sni}"
         else:
-            params_t = f"security=tls&type=ws&host={sni}&path={path_enc}&sni={sni}"
+            params_t = f"security=tls&type=ws&host={sni}&path={stored_path}&sni={sni}"
         return f"trojan://{quote(config_uuid)}@{host}:443?{params_t}#{remark}"
 
     # ── Shadowsocks ──
@@ -1370,7 +1389,7 @@ async def create_user(request: Request, _=Depends(require_auth)):
             "config_uuid": config_uuid,
             "subscription_uuid": subscription_uuid,
             "sni": sni,
-            "path": path_custom,
+            "path": path_custom if path_custom else generate_random_path(),
             "transport_type": transport_type,
             "inbound_id": inbound_id,
         }
