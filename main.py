@@ -513,8 +513,12 @@ def generate_user_config(user_id: str, user: dict, inbound_id: str = None) -> st
     # Never use 0.0.0.0 or localhost in public configs
     if host in ("0.0.0.0", "127.0.0.1", "localhost", ""):
         host = CONFIG.get("host", "") or "SERVER_IP"
-    # Protocol from user FIRST, then inbound, then default
-    protocol = user.get("protocol") or (inbound.get("protocol") if inbound else None) or "vless"
+    # Protocol: inbound protocol OVERRIDES user preference when an inbound is assigned.
+    # This ensures Reality inbounds always produce Reality configs with pbk/sid/spx.
+    inbound_proto = inbound.get("protocol") if inbound else None
+    user_proto = user.get("protocol")
+    # Use inbound protocol if assigned; fall back to user preference; then default
+    protocol = inbound_proto or user_proto or "vless"
     config_uuid = user.get("config_uuid", "")
     username = user.get("username", user_id)
     remark = quote(f"Spider-{username}")
@@ -1408,18 +1412,6 @@ async def update_inbound(inbound_id: str, request: Request, _=Depends(require_au
             ib["network"] = str(body["network"]).lower()
         if "security" in body:
             ib["security"] = str(body["security"]).lower()
-        # Reality protocol must always use security="reality" (and vice-versa)
-        if ib.get("protocol") == "reality" or ib.get("security") == "reality":
-            ib["security"] = "reality"
-            ib["protocol"] = "reality"
-            # Auto-update reality_settings with short_id/spiderx if not present
-            rs = ib.setdefault("reality_settings", {})
-            if not rs.get("short_id"):
-                rs["short_id"] = secrets.token_hex(5)[:10]
-            rs.setdefault("spiderx", "/")
-            rs.setdefault("dest", "is1-ssl.mzstatic.com:443")
-            if ib.get("network") not in ("tcp", "xhttp", "grpc"):
-                ib["network"] = "tcp"
         if "domain" in body:
             ib["domain"] = str(body["domain"]).strip()
         if "external_domain" in body:
@@ -1427,22 +1419,49 @@ async def update_inbound(inbound_id: str, request: Request, _=Depends(require_au
         if "sni" in body:
             ib["sni"] = str(body["sni"]).strip()
         if "external_port" in body:
-            ib["external_port"] = int(body["external_port"])
+            try:
+                ib["external_port"] = int(body["external_port"])
+            except (ValueError, TypeError):
+                pass
         if "fingerprint" in body:
             ib["fingerprint"] = str(body["fingerprint"]).strip()
+
+        # Merge reality settings from body — filter out empty string values to
+        # avoid wiping auto-generated keys when the frontend sends blanks
         if "reality_settings" in body and isinstance(body["reality_settings"], dict):
-            # Normalize: accept short_ids (frontend sends this) and map to short_id
-            rs = dict(body["reality_settings"])
-            if "short_ids" in rs and "short_id" not in rs:
-                rs["short_id"] = rs.pop("short_ids")
-            # Merge instead of replace — preserve existing settings not in body
-            ib["reality_settings"].update(rs)
+            incoming = {}
+            for k, v in body["reality_settings"].items():
+                if k == "short_ids" and v:
+                    incoming["short_id"] = v
+                elif v:  # skip empty strings / None
+                    incoming[k] = v
+            if incoming:
+                ib.setdefault("reality_settings", {}).update(incoming)
+
+        # Network-specific settings
         if "xhttp_settings" in body and isinstance(body["xhttp_settings"], dict):
             ib["xhttp_settings"] = body["xhttp_settings"]
         if "ws_settings" in body and isinstance(body["ws_settings"], dict):
             ib["ws_settings"] = body["ws_settings"]
         if "grpc_settings" in body and isinstance(body["grpc_settings"], dict):
             ib["grpc_settings"] = body["grpc_settings"]
+
+        # ── Reality auto-gen (MUST run AFTER all merges) ──
+        if ib.get("protocol") == "reality" or ib.get("security") == "reality":
+            ib["security"] = "reality"
+            ib["protocol"] = "reality"
+            rs = ib.setdefault("reality_settings", {})
+            # Generate x25519 key pair if still missing
+            if not rs.get("private_key") or not rs.get("public_key"):
+                priv, pub = generate_x25519_keys()
+                rs["private_key"] = priv
+                rs["public_key"] = pub
+            rs.setdefault("short_id", secrets.token_hex(5)[:10])
+            rs.setdefault("spiderx", "/")
+            rs.setdefault("dest", "is1-ssl.mzstatic.com:443")
+            if ib.get("network") not in ("tcp", "xhttp", "grpc"):
+                ib["network"] = "tcp"
+
     await save_state()
     log_activity("inbound", f"اینباند «{ib.get('name', inbound_id)}» ویرایش شد", "info")
     return {"ok": True}
@@ -1589,6 +1608,18 @@ async def create_user(request: Request, _=Depends(require_auth)):
         raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
     if concurrent_connections < 1:
         concurrent_connections = 1
+
+    # When an inbound is assigned, override user protocol/transport with inbound settings.
+    # This ensures Reality inbounds always produce Reality configs with pbk/sid/spx.
+    if inbound_id:
+        ib = INBOUNDS.get(inbound_id)
+        if ib:
+            ib_proto = ib.get("protocol")
+            if ib_proto and ib_proto in USER_PROTOCOLS:
+                protocol = ib_proto
+            ib_net = ib.get("network")
+            if ib_net and ib_net in ("ws", "grpc", "tcp", "xhttp"):
+                transport_type = ib_net
 
     user_id = generate_short_id()
     config_uuid = generate_uuid()
